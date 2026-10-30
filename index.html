@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f6b63">
+<link rel="icon" href="images/icon-192.png">
+<link rel="apple-touch-icon" href="images/icon-180.png">
+<title>Trading journal</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg:#f2f5f6; --card:#ffffff; --ink:#17232b; --muted:#5b6a74; --line:#d8e0e4;
+    --accent:#0f6b63; --accent-ink:#ffffff;
+    --good:#14794a; --goodbg:#dff2e8; --bad:#b3261e; --badbg:#fbe4e1;
+    --warn:#a35f00; --warnbg:#fff1cf; --flat:#e8edf0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#10171b; --card:#1a252b; --ink:#e6edf0; --muted:#97a5ae; --line:#2b3a42;
+      --accent:#4fc3b6; --accent-ink:#06211e;
+      --good:#58d19a; --goodbg:#12301f; --bad:#ff8f86; --badbg:#3b1d1a;
+      --warn:#f0c15a; --warnbg:#3a2f12; --flat:#24323a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:560px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.45rem; margin:6px 0 14px; }
+  h2 { font-size:1.05rem; margin:0 0 10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px;
+          padding:14px; margin-bottom:12px; }
+  .muted { color:var(--muted); font-size:.88rem; }
+  label { display:block; font-size:.85rem; color:var(--muted); margin-bottom:4px; }
+  input[type=text], input[type=number], textarea {
+    width:100%; font:inherit; padding:10px; border:1px solid var(--line);
+    border-radius:8px; background:var(--bg); color:var(--ink); }
+  textarea { min-height:110px; resize:vertical; }
+  .check { display:flex; align-items:center; gap:8px; margin:12px 0; color:var(--ink); font-size:1rem; }
+  .check input { width:20px; height:20px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink);
+           border-radius:10px; padding:12px 8px; min-height:48px; cursor:pointer; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline:3px solid var(--accent); outline-offset:2px; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  .btns { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .win { border-color:var(--good); color:var(--good); font-weight:600; }
+  .lose { border-color:var(--bad); color:var(--bad); font-weight:600; grid-column:1 / -1; }
+  .undo { grid-column:1 / -1; min-height:40px; font-size:.9rem; color:var(--muted); }
+  .banner { margin-top:12px; padding:10px 12px; border-radius:8px; font-weight:600;
+            background:var(--badbg); color:var(--bad); }
+  .stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .stat { border:1px solid var(--line); border-radius:10px; padding:10px; }
+  .stat b { display:block; font-size:1.3rem; font-variant-numeric:tabular-nums; }
+  .stat span { color:var(--muted); font-size:.82rem; }
+  .pos { color:var(--good); } .neg { color:var(--bad); }
+  canvas { width:100%; height:230px; display:block; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; font-size:.92rem; }
+  th, td { padding:7px 4px; text-align:right; border-bottom:1px solid var(--line); }
+  th:first-child, td:first-child { text-align:left; }
+  th { color:var(--muted); font-weight:500; }
+  .scroll { overflow-x:auto; }
+  details summary { cursor:pointer; padding:6px 0; font-weight:600; }
+  ul { padding-left:18px; margin:6px 0; }
+  li { margin:3px 0; }
+  .navrow { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .navrow strong { flex:1; text-align:center; }
+  .navrow button { min-height:40px; padding:6px 14px; }
+  .cal { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .dow { text-align:center; font-size:.75rem; color:var(--muted); padding-bottom:2px; }
+  .day { position:relative; aspect-ratio:1; min-height:0; padding:0; border-radius:8px;
+         background:var(--flat); border:2px solid transparent; font-size:.9rem; }
+  .day.up { background:var(--goodbg); color:var(--good); font-weight:600; }
+  .day.down { background:var(--badbg); color:var(--bad); font-weight:600; }
+  .day.today { border-color:var(--accent); }
+  .day.sel { box-shadow:0 0 0 2px var(--ink); }
+  .dot { position:absolute; bottom:4px; left:50%; width:5px; height:5px; margin-left:-2.5px;
+         border-radius:50%; background:currentColor; }
+  .legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:8px; }
+  .tag { font-size:.75rem; padding:1px 6px; border-radius:6px; background:var(--badbg); color:var(--bad); margin-left:4px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Sequence tracker</h1>
+
+  <section class="card">
+    <h2>Log a sequence</h2>
+    <label for="pair">Pair</label>
+    <input type="text" id="pair" list="pairs" placeholder="EUR/USD" autocomplete="off">
+    <datalist id="pairs"></datalist>
+    <label class="check"><input type="checkbox" id="rules" checked> I followed my rules</label>
+    <div class="btns">
+      <button class="win" id="direct">Direct win</button>
+      <button class="win" id="m1">Martingale 1 win</button>
+      <button class="win" id="m2">Martingale 2 win</button>
+      <button class="win" id="m3">Martingale 3 win</button>
+      <button class="lose" id="loss">Full loss</button>
+      <button class="undo" id="undo">Undo last</button>
+    </div>
+    <div class="banner" id="status" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>Numbers</h2>
+    <div class="stats">
+      <div class="stat"><b id="todayCount">0</b><span>sequences today</span></div>
+      <div class="stat"><b id="todayNet">£0.00</b><span>today's result</span></div>
+      <div class="stat"><b id="count">0</b><span>sequences all time</span></div>
+      <div class="stat"><b id="net">£0.00</b><span>net all time</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Calendar</h2>
+    <div class="navrow">
+      <button id="prev" aria-label="Previous month">‹</button>
+      <strong id="monthLabel"></strong>
+      <button id="next" aria-label="Next month">›</button>
+      <button id="goToday">Today</button>
+    </div>
+    <div class="cal" id="grid"></div>
+    <p class="muted legend">Green = profit day, red = loss day, grey = flat. A dot means you wrote a review.</p>
+    <hr style="border:none;border-top:1px solid var(--line);margin:12px 0">
+    <h2 id="dayTitle"></h2>
+    <p>Net for the day: <b id="dayNet">£0.00</b></p>
+    <ul id="dayList"></ul>
+    <label for="review">Daily review</label>
+    <textarea id="review" placeholder="Did I follow every rule? Where was I tempted to break one? How did I feel before and after? One thing to do differently tomorrow."></textarea>
+    <p class="muted">Saved automatically on this device.</p>
+  </section>
+
+  <section class="card">
+    <h2>Rules check</h2>
+    <p id="rulesInfo"></p>
+  </section>
+
+  <section class="card">
+    <h2>Win rate vs break-even</h2>
+    <canvas id="chart"></canvas>
+    <p class="muted" id="chartInfo"></p>
+  </section>
+
+  <section class="card">
+    <h2>By pair</h2>
+    <div class="scroll"><table id="pairTable"></table></div>
+    <p class="muted">Wait for 30+ sequences per pair before trusting its numbers.</p>
+  </section>
+
+  <section class="card">
+    <h2>Withdrawal check</h2>
+    <label for="bal">Current balance (£)</label>
+    <input type="number" id="bal" step="0.01" inputmode="decimal">
+    <p id="wd"></p>
+  </section>
+
+  <section class="card">
+    <h2>All sequences</h2>
+    <details>
+      <summary>Wins: <span id="winCount">0</span> (<span id="winTotal">£0.00</span>)</summary>
+      <ul id="winList"></ul>
+    </details>
+    <details>
+      <summary>Losses: <span id="lossCount">0</span> (<span id="lossTotal">£0.00</span>)</summary>
+      <ul id="lossList"></ul>
+    </details>
+  </section>
+</main>
+
+<script>
+  // Settings
+  const base = 1, mult = 2.2, payout = 0.85;
+  const maxStep = 3;          // 3 = four trades, 2 = three trades (safer)
+  const dailyLoss = -11, dailyProfit = 40, maxSeq = 30, ceiling = 230;
+  const defaultPairs = ["EUR/USD", "GBP/USD", "USD/JPY", "AUD/USD", "EUR/GBP", "USD/CAD"];
+  const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const DOW = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  const stakes = Array.from({ length: maxStep + 1 }, (_, i) => base * Math.pow(mult, i));
+
+  // Helpers
+  function $(id) { return document.getElementById(id); }
+  function sum(list) { return list.reduce((a, b) => a + b, 0); }
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+  function dayKey(y, m, d) { return y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0"); }
+  function today() { const d = new Date(); return dayKey(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function money(n) { return (n < 0 ? "-" : "") + "£" + Math.abs(n).toFixed(2); }
+  function signed(n) { return (n > 0 ? "+" : "") + money(n); }
+  function winName(r) { return r === "D" ? "Direct win" : "Martingale " + r + " win"; }
+  function cls(n) { return n > 0.005 ? "pos" : n < -0.005 ? "neg" : ""; }
+  function profitOf(r) {
+    if (r === "L") return -sum(stakes);
+    const k = r === "D" ? 0 : Number(r);
+    return payout * stakes[k] - sum(stakes.slice(0, k));
+  }
+  function tradesOf(r) {
+    if (r === "L") return { w: 0, l: maxStep + 1 };
+    if (r === "D") return { w: 1, l: 0 };
+    return { w: 1, l: Number(r) };
+  }
+  function evAt(p) {
+    let ev = 0;
+    for (let k = 0; k <= maxStep; k++) ev += Math.pow(1 - p, k) * p * profitOf(k === 0 ? "D" : String(k));
+    return ev + Math.pow(1 - p, maxStep + 1) * profitOf("L");
+  }
+  function breakEven() {
+    let lo = 0.3, hi = 0.99;
+    for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (evAt(mid) < 0) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  }
+
+  // Load saved data
+  let log = [], reviews = {};
+  try { log = JSON.parse(localStorage.getItem("log2")) || []; } catch (e) { log = []; }
+  try { reviews = JSON.parse(localStorage.getItem("reviews")) || {}; } catch (e) { reviews = {}; }
+  try { $("pair").value = localStorage.getItem("pair") || ""; } catch (e) {}
+  try { $("bal").value = localStorage.getItem("bal") || ""; } catch (e) {}
+
+  // Calendar state
+  const now = new Date();
+  let viewY = now.getFullYear(), viewM = now.getMonth(), sel = today(), shownDay = "";
+
+  function getStop() {
+    const todays = log.filter(e => e.date === today());
+    const net = sum(todays.map(e => profitOf(e.result)));
+    const last = todays[todays.length - 1];
+    if (last && last.result === "L") return "Full loss. You are done for today.";
+    if (net <= dailyLoss) return "Daily loss limit reached. Close the app.";
+    if (net >= dailyProfit) return "Daily profit target reached. Close the app.";
+    if (todays.length >= maxSeq) return "Max sequences reached. Stop for today.";
+    return "";
+  }
+
+  function renderCalendar() {
+    $("monthLabel").textContent = MONTHS[viewM] + " " + viewY;
+    const nets = {}, counts = {};
+    log.forEach(e => {
+      nets[e.date] = (nets[e.date] || 0) + profitOf(e.result);
+      counts[e.date] = (counts[e.date] || 0) + 1;
+    });
+    const first = (new Date(viewY, viewM, 1).getDay() + 6) % 7;
+    const days = new Date(viewY, viewM + 1, 0).getDate();
+    let html = DOW.map(d => '<div class="dow">' + d + '</div>').join("");
+    for (let i = 0; i < first; i++) html += "<div></div>";
+    for (let d = 1; d <= days; d++) {
+      const key = dayKey(viewY, viewM, d);
+      let c = "day";
+      if (counts[key]) c += nets[key] > 0.005 ? " up" : nets[key] < -0.005 ? " down" : "";
+      if (key === today()) c += " today";
+      if (key === sel) c += " sel";
+      html += '<button class="' + c + '" data-d="' + key + '" aria-label="' + key + '">' + d +
+              (reviews[key] ? '<i class="dot"></i>' : "") + "</button>";
+    }
+    $("grid").innerHTML = html;
+  }
+
+  function renderDay() {
+    const list = log.filter(e => e.date === sel);
+    const net = sum(list.map(e => profitOf(e.result)));
+    $("dayTitle").textContent = new Date(sel + "T00:00:00").toLocaleDateString("en-GB",
+      { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+    $("dayNet").textContent = signed(net);
+    $("dayNet").className = cls(net);
+    $("dayList").innerHTML = list.length ? list.map(e =>
+      "<li>" + esc(e.pair) + ": " + (e.result === "L" ? "Full loss" : winName(e.result)) + " " +
+      signed(profitOf(e.result)) + (e.rules ? "" : '<span class="tag">broke rules</span>') + "</li>").join("")
+      : '<li class="muted">No sequences logged this day.</li>';
+    if (shownDay !== sel) { $("review").value = reviews[sel] || ""; shownDay = sel; }
+  }
+
+  function drawChart() {
+    const cs = getComputedStyle(document.documentElement);
+    const col = n => cs.getPropertyValue(n).trim();
+    const c = $("chart");
+    const dpr = window.devicePixelRatio || 1;
+    const w = c.clientWidth, h = c.clientHeight;
+    c.width = w * dpr; c.height = h * dpr;
+    const g = c.getContext("2d");
+    g.scale(dpr, dpr);
+    g.clearRect(0, 0, w, h);
+    const padL = 36, padR = 10, padT = 10, padB = 22;
+    const pw = w - padL - padR, ph = h - padT - padB;
+    const yOf = v => padT + ph * (1 - v / 100);
+    const be = breakEven() * 100;
+    g.font = "11px system-ui, sans-serif"; g.lineWidth = 1;
+    [0, 25, 50, 75, 100].forEach(v => {
+      g.strokeStyle = col("--line"); g.fillStyle = col("--muted");
+      g.beginPath(); g.moveTo(padL, yOf(v)); g.lineTo(w - padR, yOf(v)); g.stroke();
+      g.fillText(v + "%", 2, yOf(v) + 4);
+    });
+    g.strokeStyle = col("--warn"); g.fillStyle = col("--warn");
+    g.setLineDash([6, 4]);
+    g.beginPath(); g.moveTo(padL, yOf(be)); g.lineTo(w - padR, yOf(be)); g.stroke();
+    g.setLineDash([]);
+    g.fillText("break-even " + be.toFixed(1) + "%", padL + 4, yOf(be) - 5);
+    if (log.length === 0) {
+      g.fillStyle = col("--muted");
+      g.fillText("Log sequences to see your win rate.", padL + 10, padT + 24);
+      return;
+    }
+    let wins = 0, total = 0;
+    const pts = log.map((e, i) => {
+      const t = tradesOf(e.result);
+      wins += t.w; total += t.w + t.l;
+      return { x: log.length === 1 ? padL + pw / 2 : padL + pw * i / (log.length - 1),
+               y: yOf(100 * wins / total), ok: e.rules };
+    });
+    g.strokeStyle = col("--ink"); g.lineWidth = 2;
+    g.beginPath();
+    pts.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y));
+    g.stroke();
+    pts.forEach(p => {
+      g.fillStyle = p.ok ? col("--good") : col("--bad");
+      g.beginPath(); g.arc(p.x, p.y, 4, 0, Math.PI * 2); g.fill();
+    });
+    g.fillStyle = col("--muted");
+    g.fillText("sequence 1", padL, h - 6);
+    g.textAlign = "right";
+    g.fillText("sequence " + log.length, w - padR, h - 6);
+    g.textAlign = "left";
+  }
+
+  function show() {
+    try { localStorage.setItem("log2", JSON.stringify(log)); } catch (e) {}
+    const wins = log.filter(e => e.result !== "L");
+    const losses = log.filter(e => e.result === "L");
+    const winTotal = sum(wins.map(e => profitOf(e.result)));
+    const lossTotal = sum(losses.map(e => profitOf(e.result)));
+    const todays = log.filter(e => e.date === today());
+    const todayNet = sum(todays.map(e => profitOf(e.result)));
+
+    $("count").textContent = log.length;
+    $("net").textContent = signed(winTotal + lossTotal); $("net").className = cls(winTotal + lossTotal);
+    $("todayCount").textContent = todays.length;
+    $("todayNet").textContent = signed(todayNet); $("todayNet").className = cls(todayNet);
+    $("winCount").textContent = wins.length; $("lossCount").textContent = losses.length;
+    $("winTotal").textContent = money(winTotal); $("lossTotal").textContent = money(lossTotal);
+
+    $("winList").innerHTML = wins.slice().reverse().map(e =>
+      "<li>" + e.date.slice(5) + " " + esc(e.pair) + ": " + winName(e.result) + " " + signed(profitOf(e.result)) +
+      (e.rules ? "" : '<span class="tag">broke rules</span>') + "</li>").join("");
+    $("lossList").innerHTML = losses.slice().reverse().map(e =>
+      "<li>" + e.date.slice(5) + " " + esc(e.pair) + ": Full loss " + money(profitOf(e.result)) +
+      (e.rules ? "" : '<span class="tag">broke rules</span>') + "</li>").join("");
+
+    const allPairs = Array.from(new Set(defaultPairs.concat(log.map(e => e.pair))));
+    $("pairs").innerHTML = allPairs.map(p => '<option value="' + esc(p) + '">').join("");
+
+    const ok = log.filter(e => e.rules), bad = log.filter(e => !e.rules);
+    $("rulesInfo").textContent = log.length === 0 ? "No sequences yet." :
+      ok.length + " of " + log.length + " sequences followed your rules (" +
+      Math.round(100 * ok.length / log.length) + "%). Net when followed: " + money(sum(ok.map(e => profitOf(e.result)))) +
+      ". Net when broken: " + money(sum(bad.map(e => profitOf(e.result)))) + ".";
+
+    let w = 0, t = 0;
+    log.forEach(e => { const x = tradesOf(e.result); w += x.w; t += x.w + x.l; });
+    const be = breakEven() * 100;
+    if (log.length === 0) {
+      $("chartInfo").textContent = "Break-even is " + be.toFixed(1) + "%. You need to stay above it.";
+    } else {
+      const wr = 100 * w / t;
+      $("chartInfo").textContent = "Win rate " + wr.toFixed(1) + "% vs break-even " + be.toFixed(1) + "%. " +
+        (log.length < 50 ? (50 - log.length) + " more sequences before this means much."
+          : wr < be ? "Below break-even. Move to demo or stop." : "Above break-even. Keep the stake fixed.") +
+        " Green dots = rules followed, red = broken.";
+    }
+
+    const map = {};
+    log.forEach(e => {
+      const m = map[e.pair] || (map[e.pair] = { n: 0, w: 0, l: 0, fl: 0, net: 0 });
+      const x = tradesOf(e.result);
+      m.n++; m.w += x.w; m.l += x.l; m.net += profitOf(e.result);
+      if (e.result === "L") m.fl++;
+    });
+    const rows = Object.keys(map).sort((a, b) => map[b].n - map[a].n).map(p => {
+      const m = map[p];
+      return "<tr><td>" + esc(p) + "</td><td>" + m.n + "</td><td>" + m.fl + "</td><td>" +
+        (100 * m.w / (m.w + m.l)).toFixed(0) + '%</td><td class="' + cls(m.net) + '">' + signed(m.net) + "</td></tr>";
+    }).join("");
+    $("pairTable").innerHTML = "<tr><th>Pair</th><th>Seq</th><th>Full losses</th><th>Win rate</th><th>Net</th></tr>" + rows;
+
+    const bal = parseFloat($("bal").value);
+    $("wd").textContent = isNaN(bal) ? "Enter your balance to check." :
+      bal > ceiling ? "Withdraw " + money(bal - ceiling) + " to get back to your " + money(ceiling) + " ceiling." :
+      "At or under your " + money(ceiling) + " ceiling. Nothing to withdraw.";
+
+    const stop = getStop();
+    $("status").textContent = stop; $("status").hidden = stop === "";
+    ["direct", "m1", "m2", "m3", "loss"].forEach((id, i) => {
+      const btn = $(id);
+      btn.disabled = stop !== "";
+      if (i >= 1 && i <= 3 && i > maxStep) btn.style.display = "none";
+    });
+
+    renderCalendar(); renderDay(); drawChart();
+  }
+
+  function add(result) {
+    if (getStop()) return;
+    const pair = $("pair").value.trim().toUpperCase() || "UNKNOWN";
+    try { localStorage.setItem("pair", pair); } catch (e) {}
+    log.push({ date: today(), pair: pair, result: result, rules: $("rules").checked });
+    sel = today();
+    show();
+  }
+
+  // Buttons
+  $("direct").onclick = () => add("D");
+  $("m1").onclick = () => add("1");
+  $("m2").onclick = () => add("2");
+  $("m3").onclick = () => add("3");
+  $("loss").onclick = () => add("L");
+  $("undo").onclick = () => { log.pop(); show(); };
+  $("bal").onchange = () => { try { localStorage.setItem("bal", $("bal").value); } catch (e) {} show(); };
+
+  // Calendar controls
+  $("grid").onclick = e => {
+    const b = e.target.closest("[data-d]");
+    if (b) { sel = b.getAttribute("data-d"); renderCalendar(); renderDay(); }
+  };
+  $("prev").onclick = () => { viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderCalendar(); };
+  $("next").onclick = () => { viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCalendar(); };
+  $("goToday").onclick = () => {
+    const d = new Date(); viewY = d.getFullYear(); viewM = d.getMonth(); sel = today();
+    renderCalendar(); renderDay();
+  };
+  $("review").oninput = () => {
+    const v = $("review").value;
+    if (v.trim()) reviews[sel] = v; else delete reviews[sel];
+    try { localStorage.setItem("reviews", JSON.stringify(reviews)); } catch (e) {}
+    renderCalendar();
+  };
+
+  window.onresize = drawChart;
+  show();
+</script>
+</body>
+</html>
